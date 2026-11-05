@@ -27,6 +27,18 @@ public class ManejadorGlobalExcepciones {
         return construirRespuesta(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
     }
 
+        // 401: debe iniciar sesión
+    @ExceptionHandler(NoAutenticadoException.class)
+    public ResponseEntity<Map<String, Object>> manejarNoAutenticado(NoAutenticadoException ex) {
+        return construirRespuesta(HttpStatus.UNAUTHORIZED, ex.getMessage(), null);
+    }
+
+    // 403: no tiene permiso
+    @ExceptionHandler(AccesoDenegadoException.class)
+    public ResponseEntity<Map<String, Object>> manejarAccesoDenegado(AccesoDenegadoException ex) {
+        return construirRespuesta(HttpStatus.FORBIDDEN, ex.getMessage(), null);
+    }
+
     // 400: falló alguna validación (@NotBlank, @Positive, etc.). Devuelve todos los errores juntos
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> manejarValidacion(MethodArgumentNotValidException ex) {
