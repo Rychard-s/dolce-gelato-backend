@@ -23,16 +23,20 @@ public class InicializadorUsuarios implements CommandLineRunner {
         }
         crear("admin", "Administrador", "admin123", Rol.ADMIN);
         crear("cocina", "Cocina", "cocina123", Rol.COCINA);
-        System.out.println(">>> Usuarios de prueba creados: admin/admin123 y cocina/cocina123");
+        // Cliente de prueba: ingresa con su celular
+        Usuario cliente = crear("912345678", "Cliente de prueba", "cliente123", Rol.CLIENTE);
+        cliente.setTelefono("912345678");
+        usuarioRepository.save(cliente);
+        System.out.println(">>> Usuarios de prueba creados: admin/admin123, cocina/cocina123 y cliente 912345678/cliente123");
     }
 
-    private void crear(String username, String nombre, String password, Rol rol) {
+    private Usuario crear(String username, String nombre, String password, Rol rol) {
         Usuario usuario = new Usuario();
         usuario.setUsername(username);
         usuario.setNombre(nombre);
         usuario.setPasswordHash(passwordEncoder.encode(password));
         usuario.setRol(rol);
         usuario.setActivo(true);
-        usuarioRepository.save(usuario);
+        return usuarioRepository.save(usuario);
     }
 }

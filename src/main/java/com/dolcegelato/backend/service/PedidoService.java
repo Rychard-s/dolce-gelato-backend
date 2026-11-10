@@ -6,12 +6,15 @@ import com.dolcegelato.backend.exception.ReglaNegocioException;
 import com.dolcegelato.backend.model.*;
 import com.dolcegelato.backend.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -45,6 +48,9 @@ public class PedidoService {
     private final OpcionRepository opcionRepository;
     private final ZonaEntregaRepository zonaRepository;
     private final PromocionService promocionService;
+    private final UsuarioRepository usuarioRepository;
+
+    private static final int TAMANIO_MAXIMO_PAGINA = 50;
 
     // ===================== CONSULTAS =====================
 
@@ -71,13 +77,80 @@ public class PedidoService {
                 pedido.getMinutosEstimados(), pedido.getHoraEstimada());
     }
 
+    // "Mis pedidos": los del cliente que inició sesión
+    public List<Pedido> misPedidos(String username) {
+        Usuario cliente = buscarCliente(username);
+        return pedidoRepository.findTop20ByClienteIdOrderByCreadoEnDesc(cliente.getId());
+    }
+
+    // ===================== REPORTES (ADMIN) =====================
+
+    public ReporteVentas reporte(LocalDate desde, LocalDate hasta) {
+        RangoFechas rango = RangoFechas.de(desde, hasta, LocalDate.now(ZONA_LIMA));
+        List<Pedido> pedidos = pedidoRepository.listarEntre(rango.inicio(), rango.fin());
+
+        int entregados = 0, cancelados = 0, enCurso = 0, recojo = 0, delivery = 0;
+        BigDecimal ventas = BigDecimal.ZERO, descuentos = BigDecimal.ZERO, envios = BigDecimal.ZERO;
+        Map<LocalDate, VentaPorDia> porDia = new TreeMap<>();
+
+        for (Pedido p : pedidos) {
+            switch (p.getEstado()) {
+                case CANCELADO -> cancelados++;
+                case ENTREGADO -> {
+                    entregados++;
+                    if (p.getTipoEntrega() == TipoEntrega.DELIVERY) delivery++; else recojo++;
+                    ventas = ventas.add(p.getTotal());
+                    descuentos = descuentos.add(p.getDescuento());
+                    envios = envios.add(p.getCostoEnvio());
+                    LocalDate dia = p.getCreadoEn().toLocalDate();
+                    VentaPorDia anterior = porDia.get(dia);
+                    porDia.put(dia, anterior == null
+                            ? new VentaPorDia(dia, 1, p.getTotal())
+                            : new VentaPorDia(dia, anterior.getPedidos() + 1, anterior.getMonto().add(p.getTotal())));
+                }
+                default -> enCurso++;
+            }
+        }
+        BigDecimal ticketPromedio = entregados == 0
+                ? BigDecimal.ZERO
+                : ventas.divide(BigDecimal.valueOf(entregados), 2, RoundingMode.HALF_UP);
+
+        return new ReporteVentas(rango.desde(), rango.hasta(), entregados, cancelados, enCurso, recojo, delivery,
+                ventas, descuentos, envios, ticketPromedio,
+                pedidoRepository.ventasPorMetodo(EstadoPedido.ENTREGADO, rango.inicio(), rango.fin()),
+                pedidoRepository.ventasPorPromocion(EstadoPedido.ENTREGADO, rango.inicio(), rango.fin()),
+                new ArrayList<>(porDia.values()));
+    }
+
+    // Historial paginado: los más recientes primero
+    public PaginaResponse<Pedido> historial(LocalDate desde, LocalDate hasta, EstadoPedido estado, int pagina, int tamanio) {
+        RangoFechas rango = RangoFechas.de(desde, hasta, LocalDate.now(ZONA_LIMA));
+        if (pagina < 0) {
+            throw new ReglaNegocioException("La página empieza en 0");
+        }
+        if (tamanio < 1 || tamanio > TAMANIO_MAXIMO_PAGINA) {
+            throw new ReglaNegocioException("El tamaño de página debe estar entre 1 y " + TAMANIO_MAXIMO_PAGINA);
+        }
+        PageRequest pageRequest = PageRequest.of(pagina, tamanio, Sort.by(Sort.Direction.DESC, "creadoEn"));
+        return PaginaResponse.de(pedidoRepository.historial(rango.inicio(), rango.fin(), estado, pageRequest));
+    }
+
     // ===================== CREAR PEDIDO =====================
 
-    @Transactional
+    // Pedido sin cuenta (invitado)
     public Pedido crear(PedidoRequest request) {
+        return crear(request, null);
+    }
+
+    // usernameCliente: si el cliente inició sesión, el pedido queda en "Mis pedidos"
+    @Transactional
+    public Pedido crear(PedidoRequest request, String usernameCliente) {
         LocalTime ahora = LocalTime.now(ZONA_LIMA);
 
         Pedido pedido = new Pedido();
+        if (usernameCliente != null) {
+            pedido.setCliente(buscarCliente(usernameCliente));
+        }
         pedido.setNombreCliente(request.getNombreCliente().trim());
         pedido.setTelefono(request.getTelefono());
         pedido.setTipoEntrega(request.getTipoEntrega());
@@ -483,6 +556,12 @@ public class PedidoService {
     }
 
     // ===================== APOYO =====================
+
+    private Usuario buscarCliente(String username) {
+        return usuarioRepository.findByUsernameIgnoreCase(username)
+                .filter(u -> u.getRol() == Rol.CLIENTE && u.isActivo())
+                .orElseThrow(() -> new RecursoNoEncontradoException("Cliente no encontrado: " + username));
+    }
 
     // RN-14: código aleatorio y único (ej. "K7M2QX9P")
     private String generarCodigoUnico() {

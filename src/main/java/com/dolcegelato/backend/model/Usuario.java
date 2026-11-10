@@ -30,4 +30,8 @@ public class Usuario {
     private Rol rol;
 
     private boolean activo = true;
+
+    // Solo para clientes: su celular (también es su usuario para ingresar)
+    @Column(length = 15)
+    private String telefono;
 }

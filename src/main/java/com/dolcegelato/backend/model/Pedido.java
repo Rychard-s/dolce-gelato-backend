@@ -1,5 +1,6 @@
 package com.dolcegelato.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -94,6 +95,13 @@ public class Pedido {
     // Solo para factura
     @Column(length = 120)
     private String razonSocial;
+
+    // Cliente registrado que hizo el pedido (null si pidió sin cuenta).
+    // @JsonIgnore: el JSON del pedido no expone los datos de la cuenta
+    @JsonIgnore
+    @ManyToOne
+    @JoinColumn(name = "usuario_id")
+    private Usuario cliente;
 
     // Tiempo estimado en minutos: preparación + traslado si es delivery
     private Integer minutosEstimados;

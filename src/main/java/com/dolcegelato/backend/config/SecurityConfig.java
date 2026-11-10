@@ -57,7 +57,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // ----- Público (cliente) -----
-                .requestMatchers(HttpMethod.POST, "/api/usuarios/login").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/usuarios/login", "/api/usuarios/registro").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/pedidos").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/pedidos/seguimiento/**").permitAll()
                 .requestMatchers(HttpMethod.GET,
@@ -65,9 +65,19 @@ public class SecurityConfig {
                         "/api/toppings/**", "/api/opciones/**", "/api/zonas/**",
                         "/api/promociones/vigentes").permitAll()
 
+                // ----- Documentación Swagger (semana 11 del sílabo) -----
+                .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+
+                // ----- Cliente registrado -----
+                .requestMatchers(HttpMethod.GET, "/api/pedidos/mios").hasRole("CLIENTE")
+
+                // ----- Cualquier usuario con sesión -----
+                .requestMatchers("/api/usuarios/sesion", "/api/usuarios/logout", "/api/usuarios/perfil")
+                        .hasAnyRole("ADMIN", "COCINA", "CLIENTE")
+
                 // ----- Cocina o administrador -----
-                .requestMatchers("/api/usuarios/sesion", "/api/usuarios/logout").hasAnyRole("ADMIN", "COCINA")
-                .requestMatchers("/api/detalles-pedido/mas-vendidos").hasRole("ADMIN")
+                .requestMatchers("/api/detalles-pedido/mas-vendidos", "/api/pedidos/reporte", "/api/pedidos/historial")
+                        .hasRole("ADMIN")
                 .requestMatchers("/api/pedidos/**", "/api/detalles-pedido/**").hasAnyRole("ADMIN", "COCINA")
                 .requestMatchers(HttpMethod.PATCH,
                         "/api/sabores/*/disponibilidad", "/api/toppings/*/disponibilidad",

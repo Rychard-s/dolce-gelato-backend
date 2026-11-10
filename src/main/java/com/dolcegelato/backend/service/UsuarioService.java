@@ -2,6 +2,7 @@ package com.dolcegelato.backend.service;
 
 import com.dolcegelato.backend.dto.LoginRequest;
 import com.dolcegelato.backend.dto.LoginResponse;
+import com.dolcegelato.backend.dto.RegistroRequest;
 import com.dolcegelato.backend.dto.UsuarioRequest;
 import com.dolcegelato.backend.exception.NoAutenticadoException;
 import com.dolcegelato.backend.exception.RecursoNoEncontradoException;
@@ -35,6 +36,30 @@ public class UsuarioService {
             throw new NoAutenticadoException("Usuario o contraseña incorrectos");
         }
         return jwtService.generarToken(usuario);
+    }
+
+    // ===================== CLIENTES =====================
+
+    // Registro público: siempre crea un CLIENTE (nunca admin ni cocina) y lo deja con sesión iniciada
+    public LoginResponse registrar(RegistroRequest request) {
+        String telefono = request.getTelefono().trim();
+        if (usuarioRepository.existsByUsernameIgnoreCase(telefono)) {
+            throw new ReglaNegocioException("Ya hay una cuenta con el celular " + telefono + ". Ingresa con tu contraseña");
+        }
+        Usuario cliente = new Usuario();
+        cliente.setUsername(telefono); // el celular es su usuario
+        cliente.setTelefono(telefono);
+        cliente.setNombre(request.getNombre().trim());
+        cliente.setRol(Rol.CLIENTE);
+        cliente.setActivo(true);
+        cliente.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        return jwtService.generarToken(usuarioRepository.save(cliente));
+    }
+
+    // Datos de la cuenta con sesión (para llenar solo el formulario del pedido)
+    public Usuario perfil(String username) {
+        return usuarioRepository.findByUsernameIgnoreCase(username)
+                .orElseThrow(() -> new RecursoNoEncontradoException("Usuario no encontrado: " + username));
     }
 
     // ===================== CRUD =====================

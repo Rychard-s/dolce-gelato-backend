@@ -2,6 +2,7 @@ package com.dolcegelato.backend.controller;
 
 import com.dolcegelato.backend.dto.LoginRequest;
 import com.dolcegelato.backend.dto.LoginResponse;
+import com.dolcegelato.backend.dto.RegistroRequest;
 import com.dolcegelato.backend.dto.UsuarioRequest;
 import com.dolcegelato.backend.model.Usuario;
 import com.dolcegelato.backend.service.UsuarioService;
@@ -30,6 +31,18 @@ public class UsuarioController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(usuarioService.login(request));
+    }
+
+    // Público: un cliente crea su cuenta y recibe su JWT (queda con sesión iniciada)
+    @PostMapping("/registro")
+    public ResponseEntity<LoginResponse> registrar(@Valid @RequestBody RegistroRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(usuarioService.registrar(request));
+    }
+
+    // Datos de quien inició sesión (el usuario sale del JWT)
+    @GetMapping("/perfil")
+    public ResponseEntity<Usuario> perfil(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(usuarioService.perfil(jwt.getSubject()));
     }
 
     // Con JWT no hay sesión en el servidor: el frontend borra el token y listo

@@ -7,15 +7,18 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface DetallePedidoRepository extends JpaRepository<DetallePedido, Long> {
 
     List<DetallePedido> findByPedidoIdOrderByIdAsc(Long pedidoId);
 
-    // RF-17: productos más vendidos, sin contar pedidos cancelados (JPQL)
+    // RF-17: productos más vendidos en un rango de fechas, sin contar pedidos cancelados (JPQL)
     @Query("SELECT new com.dolcegelato.backend.dto.ProductoVendido(d.nombreProducto, SUM(d.cantidad)) " +
            "FROM DetallePedido d WHERE d.pedido.estado <> :cancelado " +
+           "AND d.pedido.creadoEn >= :inicio AND d.pedido.creadoEn < :fin " +
            "GROUP BY d.nombreProducto ORDER BY SUM(d.cantidad) DESC")
-    List<ProductoVendido> masVendidos(@Param("cancelado") EstadoPedido cancelado);
+    List<ProductoVendido> masVendidos(@Param("cancelado") EstadoPedido cancelado,
+                                      @Param("inicio") LocalDateTime inicio, @Param("fin") LocalDateTime fin);
 }
