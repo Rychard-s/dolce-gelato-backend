@@ -1,20 +1,21 @@
 package com.dolcegelato.backend.controller;
 
-import com.dolcegelato.backend.config.AutenticacionInterceptor;
 import com.dolcegelato.backend.dto.LoginRequest;
 import com.dolcegelato.backend.dto.LoginResponse;
 import com.dolcegelato.backend.dto.UsuarioRequest;
 import com.dolcegelato.backend.model.Usuario;
-import com.dolcegelato.backend.service.TokenService;
 import com.dolcegelato.backend.service.UsuarioService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -25,21 +26,27 @@ public class UsuarioController {
 
     // ---- Sesión ----
 
+    // Público: devuelve el JWT
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(usuarioService.login(request));
     }
 
+    // Con JWT no hay sesión en el servidor: el frontend borra el token y listo
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletRequest request) {
-        usuarioService.logout(AutenticacionInterceptor.extraerToken(request));
+    public ResponseEntity<Void> logout() {
         return ResponseEntity.noContent().build();
     }
 
-    // Quién soy (lo usa Angular al recargar la página)
+    // Quién soy: datos leídos del JWT ya validado por Spring Security
     @GetMapping("/sesion")
-    public ResponseEntity<TokenService.Sesion> sesion(HttpServletRequest request) {
-        return ResponseEntity.ok((TokenService.Sesion) request.getAttribute("sesion"));
+    public ResponseEntity<Map<String, Object>> sesion(@AuthenticationPrincipal Jwt jwt) {
+        Map<String, Object> datos = new LinkedHashMap<>();
+        datos.put("username", jwt.getSubject());
+        datos.put("nombre", jwt.getClaimAsString("nombre"));
+        datos.put("rol", jwt.getClaimAsString("rol"));
+        datos.put("expira", jwt.getExpiresAt());
+        return ResponseEntity.ok(datos);
     }
 
     // ---- CRUD (solo admin) ----

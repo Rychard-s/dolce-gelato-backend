@@ -21,7 +21,7 @@ public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
-    private final TokenService tokenService;
+    private final JwtService jwtService;
 
     // ===================== LOGIN =====================
 
@@ -34,11 +34,7 @@ public class UsuarioService {
         if (usuario == null || !passwordEncoder.matches(request.getPassword(), usuario.getPasswordHash())) {
             throw new NoAutenticadoException("Usuario o contraseña incorrectos");
         }
-        return tokenService.crearSesion(usuario);
-    }
-
-    public void logout(String token) {
-        tokenService.cerrarSesion(token);
+        return jwtService.generarToken(usuario);
     }
 
     // ===================== CRUD =====================
@@ -90,9 +86,6 @@ public class UsuarioService {
         if (!esVacio(request.getPassword())) {
             usuario.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         }
-        if (!usuario.isActivo()) {
-            tokenService.cerrarSesionesDe(id);
-        }
         return usuarioRepository.save(usuario);
     }
 
@@ -101,7 +94,6 @@ public class UsuarioService {
         if (esAdminActivo(usuario)) {
             validarQueQuedeOtroAdmin();
         }
-        tokenService.cerrarSesionesDe(id);
         usuarioRepository.delete(usuario);
     }
 
