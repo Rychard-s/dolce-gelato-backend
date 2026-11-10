@@ -46,10 +46,15 @@ public class Producto {
     @Column(nullable = false)
     private LocalTime horaFin;
 
-    // RN-03: cuántos sabores de helado lleva (0 = no es helado, máximo 3)
+    // RN-02: sabores de helado. El cliente elige entre saboresMinimos y cantidadSabores.
+    // Ej: helado 2 sabores = mínimo 2 y máximo 2; helado de litro = mínimo 1 y máximo 3.
     @Min(value = 0, message = "Mínimo 0 sabores")
     @Max(value = 3, message = "Máximo 3 sabores")
     private int cantidadSabores;
+
+    @Min(value = 0, message = "El mínimo de sabores no puede ser negativo")
+    @Max(value = 3, message = "El mínimo de sabores no puede ser mayor a 3")
+    private int saboresMinimos;
 
     // RN-03: cuántos toppings incluye el precio (ej. helado 2 sabores = 1 líquido + 1 sólido)
     @Min(value = 0, message = "Mínimo 0 toppings líquidos")
@@ -66,7 +71,7 @@ public class Producto {
     // Para "ocultar" un producto de la carta sin borrarlo
     private boolean activo = true;
 
-        // RN-01: campo calculado. Sale en el JSON pero NO se guarda en la base de datos
+    // RN-01: campo calculado. Sale en el JSON pero NO se guarda en la base de datos
     @Transient
     public boolean isDisponibleAhora() {
         LocalTime ahora = LocalTime.now(ZoneId.of("America/Lima"));

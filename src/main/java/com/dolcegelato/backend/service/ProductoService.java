@@ -4,10 +4,10 @@ import com.dolcegelato.backend.exception.RecursoNoEncontradoException;
 import com.dolcegelato.backend.exception.ReglaNegocioException;
 import com.dolcegelato.backend.model.Categoria;
 import com.dolcegelato.backend.model.Producto;
+import com.dolcegelato.backend.repository.OpcionRepository;
 import com.dolcegelato.backend.repository.ProductoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import com.dolcegelato.backend.repository.OpcionRepository;
 
 import java.util.List;
 
@@ -17,7 +17,7 @@ public class ProductoService {
 
     private final ProductoRepository productoRepository;
     private final CategoriaService categoriaService;
-        private final OpcionRepository opcionRepository;
+    private final OpcionRepository opcionRepository;
 
     public List<Producto> listar(Long categoriaId) {
         if (categoriaId != null) {
@@ -38,7 +38,7 @@ public class ProductoService {
     public Producto crear(Producto producto) {
         producto.setId(null);
         producto.setCategoria(obtenerCategoria(producto));
-        validarHorario(producto);
+        validar(producto);
         return productoRepository.save(producto);
     }
 
@@ -51,15 +51,16 @@ public class ProductoService {
         producto.setHoraInicio(datos.getHoraInicio());
         producto.setHoraFin(datos.getHoraFin());
         producto.setCantidadSabores(datos.getCantidadSabores());
+        producto.setSaboresMinimos(datos.getSaboresMinimos());
         producto.setToppingsLiquidos(datos.getToppingsLiquidos());
         producto.setToppingsSolidos(datos.getToppingsSolidos());
         producto.setAptoDelivery(datos.isAptoDelivery());
         producto.setActivo(datos.isActivo());
-        validarHorario(producto);
+        validar(producto);
         return productoRepository.save(producto);
     }
 
-        public void eliminar(Long id) {
+    public void eliminar(Long id) {
         Producto producto = buscarPorId(id);
         if (opcionRepository.existsByProductoId(id)) {
             throw new ReglaNegocioException("No se puede eliminar el producto porque tiene opciones. Mejor desactívalo");
@@ -77,10 +78,18 @@ public class ProductoService {
         return categoriaService.buscarPorId(producto.getCategoria().getId());
     }
 
-    // RN-01: la hora de fin debe ser posterior a la de inicio
-    private void validarHorario(Producto producto) {
+    private void validar(Producto producto) {
+        // RN-01: la hora de fin debe ser posterior a la de inicio
         if (!producto.getHoraFin().isAfter(producto.getHoraInicio())) {
             throw new ReglaNegocioException("La hora de fin debe ser posterior a la hora de inicio");
+        }
+        // RN-02: el mínimo de sabores no puede superar al máximo.
+        // Si no se indicó un mínimo, se toma igual al máximo (ej. helado de 2 sabores = exactamente 2)
+        if (producto.getSaboresMinimos() == 0 && producto.getCantidadSabores() > 0) {
+            producto.setSaboresMinimos(producto.getCantidadSabores());
+        }
+        if (producto.getSaboresMinimos() > producto.getCantidadSabores()) {
+            throw new ReglaNegocioException("El mínimo de sabores no puede ser mayor que el máximo");
         }
     }
 }

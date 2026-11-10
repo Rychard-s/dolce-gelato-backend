@@ -36,10 +36,11 @@ public class CategoriaService {
         categoria.setNombre(datos.getNombre());
         categoria.setLinea(datos.getLinea());
         categoria.setOrden(datos.getOrden());
+        categoria.setMinutosPreparacion(datos.getMinutosPreparacion());
         return categoriaRepository.save(categoria);
     }
 
-        public void eliminar(Long id) {
+    public void eliminar(Long id) {
         Categoria categoria = buscarPorId(id);
         if (productoRepository.existsByCategoriaId(id)) {
             throw new ReglaNegocioException("No se puede eliminar la categoría porque tiene productos");

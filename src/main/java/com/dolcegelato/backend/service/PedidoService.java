@@ -27,6 +27,15 @@ public class PedidoService {
     private static final int LARGO_CODIGO = 8;
     private static final BigDecimal CIEN = new BigDecimal("100");
 
+    // SUNAT: en boletas desde S/ 700 se debe identificar al cliente con su DNI
+    private static final BigDecimal MONTO_BOLETA_CON_DNI = new BigDecimal("700");
+
+    // Tiempo estimado: preparación por defecto, extra por pedidos grandes y traslado en moto
+    private static final int MINUTOS_PREPARACION_DEFECTO = 5;
+    private static final int UNIDADES_PEDIDO_GRANDE = 6;
+    private static final int MINUTOS_PEDIDO_GRANDE = 5;
+    private static final int MINUTOS_TRASLADO_DELIVERY = 25;
+
     private final SecureRandom random = new SecureRandom();
 
     private final PedidoRepository pedidoRepository;
@@ -58,7 +67,8 @@ public class PedidoService {
         Pedido pedido = pedidoRepository.findByCodigoSeguimiento(codigo.trim().toUpperCase())
                 .orElseThrow(() -> new RecursoNoEncontradoException("No existe un pedido con el código " + codigo));
         return new SeguimientoResponse(pedido.getCodigoSeguimiento(), pedido.getEstado(),
-                pedido.getTipoEntrega(), pedido.getTotal(), pedido.getHoraSolicitada(), pedido.getCreadoEn());
+                pedido.getTipoEntrega(), pedido.getTotal(), pedido.getHoraSolicitada(), pedido.getCreadoEn(),
+                pedido.getMinutosEstimados(), pedido.getHoraEstimada());
     }
 
     // ===================== CREAR PEDIDO =====================
@@ -103,7 +113,13 @@ public class PedidoService {
         // 6. Total (RN-12)
         pedido.setTotal(pedido.getSubtotal().subtract(pedido.getDescuento()).add(pedido.getCostoEnvio()));
 
-        // 7. Código de seguimiento y estado inicial (RN-14, RN-10)
+        // 7. Comprobante: boleta o factura (después del total, porque la boleta desde S/ 700 exige DNI)
+        validarComprobante(request, pedido);
+
+        // 8. Tiempo estimado de preparación (y traslado si es delivery)
+        pedido.setMinutosEstimados(calcularMinutosEstimados(pedido));
+
+        // 9. Código de seguimiento y estado inicial (RN-14, RN-10)
         pedido.setCodigoSeguimiento(generarCodigoUnico());
         pedido.setEstado(EstadoPedido.RECIBIDO);
         pedido.setCreadoEn(LocalDateTime.now(ZONA_LIMA));
@@ -142,6 +158,10 @@ public class PedidoService {
         }
         if (pedido.isPagado()) {
             throw new ReglaNegocioException("El pedido ya está pagado con " + pedido.getMetodoPago());
+        }
+        // El repartidor no lleva POS: en delivery se paga con efectivo, Yape o Plin
+        if (pedido.getTipoEntrega() == TipoEntrega.DELIVERY && request.getMetodoPago() == MetodoPago.TARJETA) {
+            throw new ReglaNegocioException("El pago con tarjeta es solo en tienda. En delivery se paga con efectivo, Yape o Plin");
         }
         pedido.setMetodoPago(request.getMetodoPago());
         pedido.setPagado(true);
@@ -221,14 +241,21 @@ public class PedidoService {
         }
     }
 
-    // RN-02: cantidad exacta de sabores y que no estén agotados
+    // RN-02: cantidad de sabores entre el mínimo y el máximo del producto, y que no estén agotados
     private String validarSabores(Producto producto, List<Long> saborIds) {
-        int requeridos = producto.getCantidadSabores();
-        if (saborIds.size() != requeridos) {
-            throw new ReglaNegocioException(requeridos == 0
-                    ? producto.getNombre() + " no lleva sabores de helado"
-                    : producto.getNombre() + " lleva " + requeridos + " sabor(es) y elegiste " + saborIds.size());
+        int maximo = producto.getCantidadSabores();
+        int minimo = Math.min(producto.getSaboresMinimos(), maximo);
+        int elegidos = saborIds.size();
+
+        if (maximo == 0 && elegidos > 0) {
+            throw new ReglaNegocioException(producto.getNombre() + " no lleva sabores de helado");
         }
+        if (elegidos < minimo || elegidos > maximo) {
+            String rango = minimo == maximo ? String.valueOf(maximo) : "de " + minimo + " a " + maximo;
+            throw new ReglaNegocioException(producto.getNombre() + " lleva " + rango
+                    + " sabor(es) y elegiste " + elegidos);
+        }
+
         List<String> nombres = new ArrayList<>();
         for (Long id : saborIds) {
             Sabor sabor = saborRepository.findById(id)
@@ -329,9 +356,56 @@ public class PedidoService {
         return nombres.isEmpty() ? null : String.join(" | ", nombres);
     }
 
+    // ===================== COMPROBANTE =====================
+
+    // Boleta: DNI opcional (obligatorio desde S/ 700). Factura: RUC de 11 dígitos y razón social
+    private void validarComprobante(PedidoRequest request, Pedido pedido) {
+        TipoComprobante tipo = request.getTipoComprobante() == null ? TipoComprobante.BOLETA : request.getTipoComprobante();
+        String documento = esVacio(request.getDocumento()) ? null : request.getDocumento().trim();
+
+        if (tipo == TipoComprobante.FACTURA) {
+            if (documento == null || !documento.matches("(10|15|17|20)\\d{9}")) {
+                throw new ReglaNegocioException("Para factura el RUC debe tener 11 dígitos y empezar con 10, 15, 17 o 20");
+            }
+            if (esVacio(request.getRazonSocial())) {
+                throw new ReglaNegocioException("Para factura la razón social es obligatoria");
+            }
+            pedido.setRazonSocial(request.getRazonSocial().trim());
+        } else {
+            if (documento != null && !documento.matches("\\d{8}")) {
+                throw new ReglaNegocioException("El DNI debe tener 8 dígitos");
+            }
+            if (documento == null && pedido.getTotal().compareTo(MONTO_BOLETA_CON_DNI) >= 0) {
+                throw new ReglaNegocioException("Para boletas desde S/ 700 el DNI es obligatorio");
+            }
+        }
+        pedido.setTipoComprobante(tipo);
+        pedido.setDocumento(documento);
+    }
+
+    // ===================== TIEMPO ESTIMADO =====================
+
+    // Lo que más demora en prepararse marca el tiempo (los productos se preparan a la vez).
+    // Ej.: helado 5 min; hamburguesa 20 min; delivery +25 min de traslado
+    private int calcularMinutosEstimados(Pedido pedido) {
+        int preparacion = 0;
+        int unidades = 0;
+        for (DetallePedido detalle : pedido.getDetalles()) {
+            int minutos = detalle.getProducto().getCategoria().getMinutosPreparacion();
+            preparacion = Math.max(preparacion, minutos > 0 ? minutos : MINUTOS_PREPARACION_DEFECTO);
+            unidades += detalle.getCantidad();
+        }
+        if (unidades >= UNIDADES_PEDIDO_GRANDE) {
+            preparacion += MINUTOS_PEDIDO_GRANDE;
+        }
+        return pedido.getTipoEntrega() == TipoEntrega.DELIVERY
+                ? preparacion + MINUTOS_TRASLADO_DELIVERY
+                : preparacion;
+    }
+
     // ===================== PROMOCIÓN =====================
 
-    // RN-13: de todas las promociones vigentes, se aplica la que más ahorra
+    // RN-13: de todas las promociones que valen hoy, se aplica la que más ahorra (una sola)
     private void aplicarMejorPromocion(Pedido pedido) {
         BigDecimal mejorDescuento = BigDecimal.ZERO;
         Promocion mejorPromocion = null;
@@ -348,32 +422,64 @@ public class PedidoService {
     }
 
     private BigDecimal calcularDescuento(Promocion promocion, Pedido pedido) {
-        // Sin producto: % sobre todo el pedido
-        if (promocion.getProducto() == null) {
+        // Las promociones "solo en tienda" se muestran en la web pero no se aplican a pedidos web
+        if (promocion.isSoloEnTienda()) {
+            return BigDecimal.ZERO;
+        }
+
+        // Sin producto ni categoría: % sobre todo el pedido
+        if (promocion.getProducto() == null && promocion.getCategoria() == null) {
             return promocion.getTipo() == TipoPromocion.PORCENTAJE
                     ? pedido.getSubtotal().multiply(promocion.getValor()).divide(CIEN, 2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
         }
 
-        // Con producto: solo sobre ese producto (precio base, sin extras)
-        BigDecimal descuento = BigDecimal.ZERO;
-        for (DetallePedido detalle : pedido.getDetalles()) {
-            if (!detalle.getProducto().getId().equals(promocion.getProducto().getId())) {
-                continue;
-            }
-            BigDecimal cantidad = BigDecimal.valueOf(detalle.getCantidad());
-
-            if (promocion.getTipo() == TipoPromocion.PORCENTAJE) {
-                BigDecimal base = detalle.getPrecioUnitario().multiply(cantidad);
-                descuento = descuento.add(base.multiply(promocion.getValor()).divide(CIEN, 2, RoundingMode.HALF_UP));
-            } else {
-                BigDecimal ahorroUnitario = detalle.getPrecioUnitario().subtract(promocion.getValor());
-                if (ahorroUnitario.compareTo(BigDecimal.ZERO) > 0) {
-                    descuento = descuento.add(ahorroUnitario.multiply(cantidad));
-                }
-            }
+        // Detalles a los que aplica (por producto o por categoría). Se descuenta sobre el precio base, sin extras
+        List<DetallePedido> aplicables = pedido.getDetalles().stream()
+                .filter(detalle -> aplicaA(promocion, detalle.getProducto()))
+                .toList();
+        if (aplicables.isEmpty()) {
+            return BigDecimal.ZERO;
         }
-        return descuento;
+
+        return switch (promocion.getTipo()) {
+            case PORCENTAJE -> {
+                BigDecimal base = BigDecimal.ZERO;
+                for (DetallePedido detalle : aplicables) {
+                    base = base.add(detalle.getPrecioUnitario().multiply(BigDecimal.valueOf(detalle.getCantidad())));
+                }
+                yield base.multiply(promocion.getValor()).divide(CIEN, 2, RoundingMode.HALF_UP);
+            }
+            case PRECIO_FIJO -> {
+                BigDecimal ahorro = BigDecimal.ZERO;
+                for (DetallePedido detalle : aplicables) {
+                    BigDecimal ahorroUnitario = detalle.getPrecioUnitario().subtract(promocion.getValor());
+                    if (ahorroUnitario.compareTo(BigDecimal.ZERO) > 0) {
+                        ahorro = ahorro.add(ahorroUnitario.multiply(BigDecimal.valueOf(detalle.getCantidad())));
+                    }
+                }
+                yield ahorro;
+            }
+            case CANTIDAD -> {
+                // Ej. 2 litros por S/ 60: por cada grupo completo de 2 se ahorra (2 x S/ 45) - S/ 60 = S/ 30
+                int unidades = aplicables.stream().mapToInt(DetallePedido::getCantidad).sum();
+                int grupos = unidades / promocion.getCantidad();
+                BigDecimal precioGrupoNormal = aplicables.get(0).getPrecioUnitario()
+                        .multiply(BigDecimal.valueOf(promocion.getCantidad()));
+                BigDecimal ahorroPorGrupo = precioGrupoNormal.subtract(promocion.getValor());
+                yield ahorroPorGrupo.compareTo(BigDecimal.ZERO) > 0
+                        ? ahorroPorGrupo.multiply(BigDecimal.valueOf(grupos))
+                        : BigDecimal.ZERO;
+            }
+        };
+    }
+
+    private boolean aplicaA(Promocion promocion, Producto producto) {
+        if (promocion.getProducto() != null) {
+            return promocion.getProducto().getId().equals(producto.getId());
+        }
+        return promocion.getCategoria() != null
+                && promocion.getCategoria().getId().equals(producto.getCategoria().getId());
     }
 
     // ===================== APOYO =====================

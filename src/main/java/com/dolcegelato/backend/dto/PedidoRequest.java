@@ -1,5 +1,6 @@
 package com.dolcegelato.backend.dto;
 
+import com.dolcegelato.backend.model.TipoComprobante;
 import com.dolcegelato.backend.model.TipoEntrega;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -35,6 +36,16 @@ public class PedidoRequest {
 
     // Opcional: si no se envía, es "lo antes posible"
     private LocalTime horaSolicitada;
+
+    // Si no se envía, se emite boleta
+    private TipoComprobante tipoComprobante;
+
+    // DNI (8 dígitos) o RUC (11 dígitos). Las reglas se validan en PedidoService
+    @Size(max = 11, message = "El documento no debe superar 11 dígitos")
+    private String documento;
+
+    @Size(max = 120, message = "La razón social no debe superar 120 caracteres")
+    private String razonSocial;
 
     @NotEmpty(message = "El pedido debe tener al menos un producto")
     @Valid

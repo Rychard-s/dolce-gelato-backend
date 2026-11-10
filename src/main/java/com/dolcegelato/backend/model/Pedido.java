@@ -81,6 +81,23 @@ public class Pedido {
 
     private boolean pagado;
 
+    // ===== Comprobante (lo pide el cliente al hacer el pedido) =====
+    // Las columnas aceptan null para no afectar los pedidos antiguos: null se trata como BOLETA
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private TipoComprobante tipoComprobante;
+
+    // DNI (8 dígitos) para boleta o RUC (11 dígitos) para factura
+    @Column(length = 11)
+    private String documento;
+
+    // Solo para factura
+    @Column(length = 120)
+    private String razonSocial;
+
+    // Tiempo estimado en minutos: preparación + traslado si es delivery
+    private Integer minutosEstimados;
+
     @Column(nullable = false)
     private LocalDateTime creadoEn;
 
@@ -91,6 +108,18 @@ public class Pedido {
     public void agregarDetalle(DetallePedido detalle) {
         detalle.setPedido(this);
         detalles.add(detalle);
+    }
+
+    // Hora aproximada en que el pedido estará listo (recojo) o llegará (delivery). Sale en el JSON
+    @Transient
+    public LocalTime getHoraEstimada() {
+        if (horaSolicitada != null) {
+            return horaSolicitada; // pedido programado: se entrega a la hora elegida
+        }
+        if (creadoEn == null || minutosEstimados == null) {
+            return null;
+        }
+        return creadoEn.toLocalTime().plusMinutes(minutosEstimados).withSecond(0).withNano(0);
     }
 
     // RN-10: a qué estados puede pasar desde el actual (sale en el JSON para el panel de cocina)

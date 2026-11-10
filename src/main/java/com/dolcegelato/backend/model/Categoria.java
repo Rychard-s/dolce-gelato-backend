@@ -27,4 +27,10 @@ public class Categoria {
     // Para ordenar las categorías en la carta (1, 2, 3...)
     @Min(value = 0, message = "El orden no puede ser negativo")
     private int orden;
+
+    // Minutos aproximados que toma preparar un producto de esta categoría (para el tiempo estimado).
+    // 0 = no definido: se usan 5 minutos
+    @Min(value = 0, message = "Los minutos de preparación no pueden ser negativos")
+    @Max(value = 90, message = "Los minutos de preparación no deben superar 90")
+    private int minutosPreparacion;
 }

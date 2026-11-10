@@ -18,4 +18,6 @@ public class SeguimientoResponse {
     private BigDecimal total;
     private LocalTime horaSolicitada;
     private LocalDateTime creadoEn;
+    private Integer minutosEstimados;
+    private LocalTime horaEstimada;
 }
